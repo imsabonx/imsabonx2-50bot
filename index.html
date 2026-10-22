@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SabonX2 | 50 Worker Link Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div class="logo">SX2</div>
+      <div>
+        <p class="eyebrow">AUTOMATION CONTROL CENTER</p>
+        <h1>SabonX2 <span>Link Dashboard</span></h1>
+      </div>
+      <span class="pill">50-worker limit</span>
+    </header>
+
+    <section class="notice {% if allowlist_configured %}good{% else %}warn{% endif %}">
+      {% if allowlist_configured %}
+        Approved-domain allowlist is configured.
+      {% else %}
+        Setup required: configure ALLOWED_DOMAINS on the server before checking links.
+      {% endif %}
+      This starter project checks website reachability only; it does not log in, submit forms, or claim a task is completed.
+    </section>
+
+    <section class="stats">
+      <article><span>Total checked</span><strong id="total">0</strong></article>
+      <article><span>Reachable</span><strong id="reachable">0</strong></article>
+      <article><span>Failed</span><strong id="failed">0</strong></article>
+      <article><span>Rejected</span><strong id="rejected">0</strong></article>
+    </section>
+
+    <section class="panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">JOB QUEUE</p><h2>Add website links</h2></div>
+        <span class="small">One HTTPS URL per line</span>
+      </div>
+      <textarea id="urls" placeholder="https://example.com/page-one&#10;https://example.com/page-two" spellcheck="false"></textarea>
+      <div class="actions">
+        <button id="checkBtn" onclick="checkLinks()">Check links</button>
+        <button class="secondary" onclick="clearAll()">Clear</button>
+        <span id="message" role="status"></span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">LIVE RESULTS</p><h2>Verification report</h2></div>
+        <button class="secondary compact" onclick="downloadCsv()">Export CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Website URL</th><th>Status</th><th>HTTP</th><th>Details</th></tr></thead>
+          <tbody id="results"><tr><td colspan="4" class="empty">No checks yet. Add approved URLs above.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <footer>SabonX2 starter • Use only on websites you own or are authorized to test.</footer>
+  </main>
+<script>
+let latestResults = [];
+async function checkLinks() {
+  const textarea = document.getElementById('urls');
+  const button = document.getElementById('checkBtn');
+  const message = document.getElementById('message');
+  if (!textarea.value.trim()) { message.textContent = 'Paste at least one URL.'; return; }
+  button.disabled = true;
+  button.textContent = 'Checking…';
+  message.textContent = 'Running approved URL checks…';
+  try {
+    const response = await fetch('/api/check', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({urls: textarea.value})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Request failed');
+    latestResults = data.results || [];
+    document.getElementById('total').textContent = data.total;
+    document.getElementById('reachable').textContent = data.reachable;
+    document.getElementById('failed').textContent = data.failed;
+    document.getElementById('rejected').textContent = data.rejected;
+    renderResults(latestResults);
+    message.textContent = 'Check finished.';
+  } catch (err) {
+    message.textContent = err.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Check links';
+  }
+}
+function renderResults(rows) {
+  const tbody = document.getElementById('results');
+  tbody.replaceChildren();
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty">No results.</td></tr>';
+    return;
+  }
+  rows.forEach(row => {
+    const tr = document.createElement('tr');
+    [row.url, row.status, row.http_status ?? '—', row.detail || '—'].forEach((value, i) => {
+      const td = document.createElement('td');
+      td.textContent = value;
+      if (i === 1) td.className = 'status ' + String(value).toLowerCase();
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+}
+function clearAll() {
+  document.getElementById('urls').value = '';
+  document.getElementById('message').textContent = '';
+  latestResults = [];
+  ['total','reachable','failed','rejected'].forEach(id => document.getElementById(id).textContent = '0');
+  renderResults([]);
+}
+function downloadCsv() {
+  if (!latestResults.length) { document.getElementById('message').textContent = 'There are no results to export.'; return; }
+  const quote = value => '"' + String(value ?? '').replaceAll('"', '""') + '"';
+  const csv = [['url','status','http_status','detail'], ...latestResults.map(r => [r.url,r.status,r.http_status ?? '',r.detail ?? ''])]
+    .map(row => row.map(quote).join(',')).join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'sabonx2-results.csv';
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+</script>
+</body>
+</html>
